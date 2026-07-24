@@ -6,12 +6,24 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - name: Dump full event JSON
+      - name: Check push options in event
         run: |
-          echo "=== GITHUB_EVENT_NAME ==="
-          echo "$GITHUB_EVENT_NAME"
-          echo "=== Event JSON (push options present?) ==="
-          cat "$GITHUB_EVENT_PATH"
-          echo ""
-          echo "=== Environment variables ==="
-          env | grep -i "push\|option\|ref\|head" || true
+          echo "=== Checking for push options field ==="
+          python3 -c "
+import json, os
+with open(os.environ['GITHUB_EVENT_PATH']) as f:
+    e = json.load(f)
+# Check ALL top-level keys for push_options
+print('ALL TOP-LEVEL KEYS:', list(e.keys()))
+print('push_options present:', 'push_options' in e)
+# Check for any X-Stat-like internal metadata
+for k,v in e.items():
+    if 'push' in k.lower() or 'option' in k.lower() or 'stat' in k.lower() or 'hook' in k.lower():
+        print(f'  FOUND: {k} = {v}')
+"
+      - name: UNSAFE expression test - commit message injection
+        run: echo "Commit was ${{ github.event.head_commit.message }}"
+      - name: Test push option via ref name
+        run: |
+          echo "REF=${{ github.ref }}"
+          echo "HEAD_COMMIT_MSG=${{ github.event.head_commit.message }}"
