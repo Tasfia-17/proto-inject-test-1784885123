@@ -8,22 +8,19 @@ jobs:
     steps:
       - name: Check push options in event JSON
         run: |
-          python3 -c "
-import json, os
-with open(os.environ['GITHUB_EVENT_PATH']) as f:
-    e = json.load(f)
-print('TOP_LEVEL_KEYS:', sorted(e.keys()))
-# Look for push options specifically
-for k in sorted(e.keys()):
-    if 'push' in k.lower() or 'hook' in k.lower() or 'option' in k.lower():
-        print(f'MATCH: {k!r} = {e[k]!r}')
-"
-      - name: Safe expression test - write to env then use
+          python3 << 'PYEOF'
+          import json, os
+          with open(os.environ['GITHUB_EVENT_PATH']) as f:
+              e = json.load(f)
+          print('TOP_LEVEL_KEYS:', sorted(e.keys()))
+          for k in sorted(e.keys()):
+              if any(x in k.lower() for x in ['push','hook','option','stat']):
+                  print('MATCH:', repr(k), '=', repr(e[k]))
+          print('push_options present:', 'push_options' in e)
+          PYEOF
+      - name: Safe env var test
         env:
-          MSG: ${{ github.event.head_commit.message }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
-          echo "Message via env var: $MSG"
-          # This is safe - env var, not inline expression
-          if echo "$MSG" | grep -q "INJECTED"; then
-            echo "EXPRESSION_SAFE: shell var interpolation blocked injection"
-          fi
+          echo "Commit message via env: $COMMIT_MSG"
+          echo "Done"
