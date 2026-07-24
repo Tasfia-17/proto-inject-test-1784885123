@@ -6,24 +6,24 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - name: Check push options in event
+      - name: Check push options in event JSON
         run: |
-          echo "=== Checking for push options field ==="
           python3 -c "
 import json, os
 with open(os.environ['GITHUB_EVENT_PATH']) as f:
     e = json.load(f)
-# Check ALL top-level keys for push_options
-print('ALL TOP-LEVEL KEYS:', list(e.keys()))
-print('push_options present:', 'push_options' in e)
-# Check for any X-Stat-like internal metadata
-for k,v in e.items():
-    if 'push' in k.lower() or 'option' in k.lower() or 'stat' in k.lower() or 'hook' in k.lower():
-        print(f'  FOUND: {k} = {v}')
+print('TOP_LEVEL_KEYS:', sorted(e.keys()))
+# Look for push options specifically
+for k in sorted(e.keys()):
+    if 'push' in k.lower() or 'hook' in k.lower() or 'option' in k.lower():
+        print(f'MATCH: {k!r} = {e[k]!r}')
 "
-      - name: UNSAFE expression test - commit message injection
-        run: echo "Commit was ${{ github.event.head_commit.message }}"
-      - name: Test push option via ref name
+      - name: Safe expression test - write to env then use
+        env:
+          MSG: ${{ github.event.head_commit.message }}
         run: |
-          echo "REF=${{ github.ref }}"
-          echo "HEAD_COMMIT_MSG=${{ github.event.head_commit.message }}"
+          echo "Message via env var: $MSG"
+          # This is safe - env var, not inline expression
+          if echo "$MSG" | grep -q "INJECTED"; then
+            echo "EXPRESSION_SAFE: shell var interpolation blocked injection"
+          fi
