@@ -1,5 +1,0 @@
-[submodule "test"]
-	path = test
-	url = https://github.com/github/gitignore.git
-[protocol]
-	allow = always
