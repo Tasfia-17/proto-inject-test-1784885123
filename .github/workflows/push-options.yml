@@ -3,23 +3,24 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+permissions:
+  contents: write
+  issues: write
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - name: TEST1 push event keys
-        run: cat "$GITHUB_EVENT_PATH" | python3 -c "import json,sys; e=json.load(sys.stdin); print('KEYS:', sorted(e.keys())); print('push_options:', 'push_options' in e); print('author:', e.get('head_commit',{}).get('author',{}).get('name'))"
+      - name: TEST1 push options in event
+        run: cat "$GITHUB_EVENT_PATH" | python3 -c "import json,sys; e=json.load(sys.stdin); print('push_options:', 'push_options' in e); print('author_name:', e.get('head_commit',{}).get('author',{}).get('name'))"
 
-      - name: TEST2 author name via env
-        env:
-          AUTHOR_NAME: ${{ github.event.head_commit.author.name }}
-          COMMIT_MSG: ${{ github.event.head_commit.message }}
-        run: |
-          echo "AUTHOR_NAME_VALUE=$AUTHOR_NAME"
-          echo "COMMIT_MSG_VALUE=$COMMIT_MSG"
-          ls /tmp/pwned_author 2>/dev/null && echo "PWNED_FILE_EXISTS" || echo "NO_INJECTION"
+      - name: TEST2 CRITICAL - expression directly in run (vulnerable pattern)
+        run: echo "Hello ${{ github.event.head_commit.author.name }}, your commit was ${{ github.event.head_commit.message }}"
 
-      - name: TEST3 token length
+      - name: TEST3 GITHUB_TOKEN now available - check length
         run: |
           echo "GITHUB_TOKEN_LEN=${#GITHUB_TOKEN}"
           echo "ACTIONS_RUNTIME_TOKEN_LEN=${#ACTIONS_RUNTIME_TOKEN}"
+          echo "Can we use the token?"
+          curl -s -o /dev/null -w "API_STATUS:%{http_code}" \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY" | grep API_STATUS
