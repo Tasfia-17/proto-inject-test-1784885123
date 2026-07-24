@@ -6,8 +6,12 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - name: Show push options
+      - name: Dump full event JSON
         run: |
-          echo "Event: ${{ github.event_name }}"
-          echo "Ref: ${{ github.ref }}"
-          echo "Actor: ${{ github.actor }}"
+          echo "=== GITHUB_EVENT_NAME ==="
+          echo "$GITHUB_EVENT_NAME"
+          echo "=== Event JSON (push options present?) ==="
+          cat "$GITHUB_EVENT_PATH"
+          echo ""
+          echo "=== Environment variables ==="
+          env | grep -i "push\|option\|ref\|head" || true
