@@ -6,21 +6,41 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - name: Check push options in event JSON
+      - name: "TEST-1: Push event keys (push_options present?)"
         run: |
           python3 << 'PYEOF'
-          import json, os
-          with open(os.environ['GITHUB_EVENT_PATH']) as f:
-              e = json.load(f)
-          print('TOP_LEVEL_KEYS:', sorted(e.keys()))
-          for k in sorted(e.keys()):
-              if any(x in k.lower() for x in ['push','hook','option','stat']):
-                  print('MATCH:', repr(k), '=', repr(e[k]))
-          print('push_options present:', 'push_options' in e)
-          PYEOF
-      - name: Safe env var test
+import json, os
+with open(os.environ['GITHUB_EVENT_PATH']) as f:
+    e = json.load(f)
+print('ALL_KEYS:', sorted(e.keys()))
+print('push_options_key_present:', 'push_options' in e)
+hc = e.get('head_commit', {})
+print('head_commit.author.name:', hc.get('author', {}).get('name'))
+print('head_commit.author.email:', hc.get('author', {}).get('email'))
+print('head_commit.message:', hc.get('message'))
+PYEOF
+
+      - name: "TEST-2: UNSAFE - expression interpolated into run shell (injection vector)"
         env:
+          AUTHOR_NAME: ${{ github.event.head_commit.author.name }}
+          AUTHOR_EMAIL: ${{ github.event.head_commit.author.email }}
           COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
-          echo "Commit message via env: $COMMIT_MSG"
-          echo "Done"
+          echo "AUTHOR_NAME=$AUTHOR_NAME"
+          echo "AUTHOR_EMAIL=$AUTHOR_EMAIL"
+          echo "COMMIT_MSG=$COMMIT_MSG"
+          echo "shell_injection_result=$(echo SAFE)"
+          ls /tmp/pwned_author 2>/dev/null && echo "FILE_EXISTS_INJECTION_WORKED" || echo "no_injection_file"
+
+      - name: "TEST-3: ref_name injection (branch name as expression)"
+        run: |
+          echo "ref_name_value=${{ github.ref_name }}"
+          echo "actor_value=${{ github.actor }}"
+
+      - name: "TEST-4: Environment leak - what secrets/tokens are visible"
+        run: |
+          echo "GITHUB_TOKEN length=${#GITHUB_TOKEN}"
+          echo "ACTIONS_RUNTIME_TOKEN length=${#ACTIONS_RUNTIME_TOKEN}"
+          env | grep -i "token\|secret\|key\|pass" | sed 's/=.*/=REDACTED/' || true
+          echo "RUNNER_TEMP=$RUNNER_TEMP"
+          echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
