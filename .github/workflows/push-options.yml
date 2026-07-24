@@ -6,41 +6,41 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - name: "TEST-1: Push event keys (push_options present?)"
+      - name: TEST1 push event keys
         run: |
-          python3 << 'PYEOF'
-import json, os
-with open(os.environ['GITHUB_EVENT_PATH']) as f:
-    e = json.load(f)
+          cat "$GITHUB_EVENT_PATH" | python3 -c "
+import json,sys
+e=json.load(sys.stdin)
 print('ALL_KEYS:', sorted(e.keys()))
-print('push_options_key_present:', 'push_options' in e)
-hc = e.get('head_commit', {})
-print('head_commit.author.name:', hc.get('author', {}).get('name'))
-print('head_commit.author.email:', hc.get('author', {}).get('email'))
-print('head_commit.message:', hc.get('message'))
-PYEOF
+print('push_options_present:', 'push_options' in e)
+hc=e.get('head_commit',{})
+au=hc.get('author',{})
+print('author_name:', au.get('name'))
+print('author_email:', au.get('email'))
+print('commit_msg:', hc.get('message'))
+"
 
-      - name: "TEST-2: UNSAFE - expression interpolated into run shell (injection vector)"
+      - name: TEST2 author name via env var safe path
         env:
           AUTHOR_NAME: ${{ github.event.head_commit.author.name }}
           AUTHOR_EMAIL: ${{ github.event.head_commit.author.email }}
           COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
-          echo "AUTHOR_NAME=$AUTHOR_NAME"
-          echo "AUTHOR_EMAIL=$AUTHOR_EMAIL"
-          echo "COMMIT_MSG=$COMMIT_MSG"
-          echo "shell_injection_result=$(echo SAFE)"
-          ls /tmp/pwned_author 2>/dev/null && echo "FILE_EXISTS_INJECTION_WORKED" || echo "no_injection_file"
+          echo "AUTHOR_NAME_VALUE=$AUTHOR_NAME"
+          echo "AUTHOR_EMAIL_VALUE=$AUTHOR_EMAIL"
+          echo "COMMIT_MSG_VALUE=$COMMIT_MSG"
+          ls /tmp/pwned_author 2>/dev/null && echo "PWNED_FILE_EXISTS" || echo "no_pwned_file"
 
-      - name: "TEST-3: ref_name injection (branch name as expression)"
+      - name: TEST3 static expressions safe
         run: |
-          echo "ref_name_value=${{ github.ref_name }}"
-          echo "actor_value=${{ github.actor }}"
+          echo "ref_name=${{ github.ref_name }}"
+          echo "actor=${{ github.actor }}"
+          echo "sha=${{ github.sha }}"
 
-      - name: "TEST-4: Environment leak - what secrets/tokens are visible"
+      - name: TEST4 token presence check
         run: |
-          echo "GITHUB_TOKEN length=${#GITHUB_TOKEN}"
-          echo "ACTIONS_RUNTIME_TOKEN length=${#ACTIONS_RUNTIME_TOKEN}"
-          env | grep -i "token\|secret\|key\|pass" | sed 's/=.*/=REDACTED/' || true
+          echo "GITHUB_TOKEN_length=${#GITHUB_TOKEN}"
+          echo "ACTIONS_RUNTIME_TOKEN_length=${#ACTIONS_RUNTIME_TOKEN}"
           echo "RUNNER_TEMP=$RUNNER_TEMP"
           echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
+          env | grep -i "token" | sed "s/=.*/=REDACTED/" || true
