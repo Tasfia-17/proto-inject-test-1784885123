@@ -2,45 +2,24 @@ name: Push Options Test
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
       - name: TEST1 push event keys
-        run: |
-          cat "$GITHUB_EVENT_PATH" | python3 -c "
-import json,sys
-e=json.load(sys.stdin)
-print('ALL_KEYS:', sorted(e.keys()))
-print('push_options_present:', 'push_options' in e)
-hc=e.get('head_commit',{})
-au=hc.get('author',{})
-print('author_name:', au.get('name'))
-print('author_email:', au.get('email'))
-print('commit_msg:', hc.get('message'))
-"
+        run: cat "$GITHUB_EVENT_PATH" | python3 -c "import json,sys; e=json.load(sys.stdin); print('KEYS:', sorted(e.keys())); print('push_options:', 'push_options' in e); print('author:', e.get('head_commit',{}).get('author',{}).get('name'))"
 
-      - name: TEST2 author name via env var safe path
+      - name: TEST2 author name via env
         env:
           AUTHOR_NAME: ${{ github.event.head_commit.author.name }}
-          AUTHOR_EMAIL: ${{ github.event.head_commit.author.email }}
           COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
           echo "AUTHOR_NAME_VALUE=$AUTHOR_NAME"
-          echo "AUTHOR_EMAIL_VALUE=$AUTHOR_EMAIL"
           echo "COMMIT_MSG_VALUE=$COMMIT_MSG"
-          ls /tmp/pwned_author 2>/dev/null && echo "PWNED_FILE_EXISTS" || echo "no_pwned_file"
+          ls /tmp/pwned_author 2>/dev/null && echo "PWNED_FILE_EXISTS" || echo "NO_INJECTION"
 
-      - name: TEST3 static expressions safe
+      - name: TEST3 token length
         run: |
-          echo "ref_name=${{ github.ref_name }}"
-          echo "actor=${{ github.actor }}"
-          echo "sha=${{ github.sha }}"
-
-      - name: TEST4 token presence check
-        run: |
-          echo "GITHUB_TOKEN_length=${#GITHUB_TOKEN}"
-          echo "ACTIONS_RUNTIME_TOKEN_length=${#ACTIONS_RUNTIME_TOKEN}"
-          echo "RUNNER_TEMP=$RUNNER_TEMP"
-          echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
-          env | grep -i "token" | sed "s/=.*/=REDACTED/" || true
+          echo "GITHUB_TOKEN_LEN=${#GITHUB_TOKEN}"
+          echo "ACTIONS_RUNTIME_TOKEN_LEN=${#ACTIONS_RUNTIME_TOKEN}"
